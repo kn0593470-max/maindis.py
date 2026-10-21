@@ -102,7 +102,7 @@ MESSAGES = [
     "‎con đĩ mẹ mày bất lực vì bị tao chửi mà chỉ biết câm lặng:))",
     "mẹ mày bị t đụ đột quỵ ngoài nhà nghỉ kìa đem hòm ra nha",
     "đem hai cái mày với con mẹ m luôn nha",
-    "‎‎thời gian trôi qua để cảm nhận nỗi đau đi ửa à",
+    "‎‎th thời gian trôi qua để cảm nhận nỗi đau đi ửa à",
     "‎‎ nhai t chặt đầu con đĩ má m ra đó",
     "thằng ngu lgbt da đen sủa lẹ ai cko mày câm",
     "thằng sex thú đang cố làm cha cay hả thằng bại não",
@@ -172,7 +172,7 @@ MESSAGES = [
     "🤭🤭Mày bê đê ngũ sắc dell công khai bị tao chọc quá máu cặc mày dồn lên não choa mày chết hả",
     "nhà thằng đú này nghèo không có tiền chơi gái nên phải loạn luân luôn với mẹ nó để giải khát cơn thèm thuồng",
     "thằng cầm thú loạn luân some với mẹ ruột và ba ruột còn quay clip",
-    "m bị óc cứt hay sao z hả mà t nói m dell hiểu hay bố phải nhét cứt vào đầu m thì m mới thông hả con óc lồn ơi",
+    "m bị óc cứt hay sao z hả mà t nói m dell hiểu hay bố phải nhét cứt vào đầu m tính m mới thông hả con óc lồn ơi",
     "Một lũ xam cu lên đây đú ửa ngôn thì nhạt như cái nước lồn của con đỉ mẹ cm v hăng lên đi con mẹ mày bị t xé rách mu sao chối ????",
     "bà già mày bị tao treo cổ lên trên trần nhà mà?",
     "thằng bất tài vô dụng sủa mạnh lên đi",
@@ -198,9 +198,9 @@ active_spam_tasks = []
 active_vc_tasks = []
 
 # ---------------------------------------------------------
-# Tiến trình Spam thông minh (Hỗ trợ 2 chế độ & Vòng lặp ngôn riêng)
+# Tiến trình Spam thông minh (Đã cập nhật: Tag ở DƯỚI CÂU CHAT)
 # ---------------------------------------------------------
-async def run_spam_task(tokens, channels, mention_ids, delay, mode):
+async def run_spam_task(tokens, channels, mention_ids, delay, mode, font_size):
     headers_list = [{"Authorization": t.strip(), "Content-Type": "application/json"} for t in tokens if t.strip()]
     channel_list = [c.strip() for c in channels if c.strip()]
     if not headers_list or not channel_list:
@@ -209,15 +209,27 @@ async def run_spam_task(tokens, channels, mention_ids, delay, mode):
     mention_text = " ".join([f"<@{uid}>" for uid in mention_ids]) if mention_ids else ""
     semaphore = asyncio.Semaphore(5)
     
-    token_indices = [0] * len(headers_list)
+    total_msgs = len(MESSAGES)
+    token_indices = [i % total_msgs for i in range(len(headers_list))]
 
     try:
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             while True:
                 if mode == "1":  # Gửi full kho ngôn 1 lần
-                    for msg in MESSAGES:
+                    for msg_idx in range(total_msgs):
                         for idx, headers in enumerate(headers_list):
                             channel_id = channel_list[idx % len(channel_list)]
+                            
+                            actual_msg_idx = (token_indices[idx] + msg_idx) % total_msgs
+                            msg = MESSAGES[actual_msg_idx]
+                            
+                            # Xử lý cỡ chữ
+                            if font_size == "to":
+                                msg = f"# {msg}"
+
+                            # ĐƯA TAG XUỐNG DƯỚI CÂU CHAT
+                            full_msg = f"{msg}\n{mention_text}" if mention_text else msg
+
                             typing_url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
                             send_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
                             try:
@@ -225,20 +237,27 @@ async def run_spam_task(tokens, channels, mention_ids, delay, mode):
                                     async with session.post(typing_url, headers=headers) as resp:
                                         pass
                                     await asyncio.sleep(delay)
-                                    full_msg = f"{mention_text} {msg}" if mention_text else msg
                                     async with session.post(send_url, json={"content": full_msg}, headers=headers) as resp:
                                         pass
                             except Exception:
                                 pass
                         await asyncio.sleep(0.3)
+                    token_indices = [(idx + total_msgs) % total_msgs for idx in token_indices]
                 
-                elif mode == "2":  # Chia ra gửi 1 lỗi 1 dòng độc lập cho từng token, hết kho tự lặp lại
+                elif mode == "2":  # Chia ra gửi 1 câu/dòng độc lập cho từng token
                     for idx, headers in enumerate(headers_list):
                         channel_id = channel_list[idx % len(channel_list)]
                         current_msg_idx = token_indices[idx]
                         msg = MESSAGES[current_msg_idx]
                         
-                        token_indices[idx] = (current_msg_idx + 1) % len(MESSAGES)
+                        token_indices[idx] = (current_msg_idx + 1) % total_msgs
+
+                        # Xử lý cỡ chữ
+                        if font_size == "to":
+                            msg = f"# {msg}"
+
+                        # ĐƯA TAG XUỐNG DƯỚI CÂU CHAT
+                        full_msg = f"{msg}\n{mention_text}" if mention_text else msg
 
                         typing_url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
                         send_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
@@ -247,7 +266,6 @@ async def run_spam_task(tokens, channels, mention_ids, delay, mode):
                                 async with session.post(typing_url, headers=headers) as resp:
                                     pass
                                 await asyncio.sleep(delay)
-                                full_msg = f"{mention_text} {msg}" if mention_text else msg
                                 async with session.post(send_url, json={"content": full_msg}, headers=headers) as resp:
                                     pass
                         except Exception:
@@ -333,13 +351,14 @@ async def run_vc_task(tokens, channel_id):
         active_vc_tasks.append(task)
 
 # ---------------------------------------------------------
-# Modal Cấu hình Spam & Chọn Chế Độ
+# Modal Cấu hình Spam
 # ---------------------------------------------------------
 class SpamModal(Modal, title="⚡ CẤU HÌNH CHIẾN DỊCH SPAM ⚡"):
     tokens_input = TextInput(label="TOKEN (Dán trực tiếp hoặc gõ 'my')", style=discord.TextStyle.paragraph, placeholder="token1, token2... hoặc gõ 'my'", required=True)
     channels_input = TextInput(label="ID KÊNH (Cách nhau bằng dấu phẩy)", style=discord.TextStyle.short, placeholder="id_kenh_1, id_kenh_2...", required=True)
     tags_input = TextInput(label="ID TAG (Để trống nếu không tag)", style=discord.TextStyle.short, required=False)
     mode_input = TextInput(label="CHẾ ĐỘ: [1] Full Kho | [2] Lần lượt từng dòng", style=discord.TextStyle.short, default="1", required=True)
+    font_input = TextInput(label="CỠ CHỮ: Nhập 'to' (#) hoặc 'nho'", style=discord.TextStyle.short, default="nho", required=True)
     delay_input = TextInput(label="DELAY GIẢ TYPING (GIÂY)", style=discord.TextStyle.short, default="1.0", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -348,9 +367,14 @@ class SpamModal(Modal, title="⚡ CẤU HÌNH CHIẾN DỊCH SPAM ⚡"):
         raw_tokens = get_tokens_for_user(interaction.user.id, self.tokens_input.value)
         channels = [c.strip() for c in self.channels_input.value.split(",") if c.strip()]
         mode = self.mode_input.value.strip()
+        font_size = self.font_input.value.strip().lower()
 
         if mode not in ["1", "2"]:
             await interaction.followup.send("❌ **Lỗi: Chế độ phải là 1 hoặc 2!**", ephemeral=True)
+            return
+
+        if font_size not in ["to", "nho"]:
+            await interaction.followup.send("❌ **Lỗi: Cỡ chữ chỉ được nhập 'to' hoặc 'nho'!**", ephemeral=True)
             return
 
         if not raw_tokens or not channels:
@@ -378,10 +402,11 @@ class SpamModal(Modal, title="⚡ CẤU HÌNH CHIẾN DỊCH SPAM ⚡"):
             delay = 1.0
 
         mode_name = "Gửi Full Kho Ngôn 1 Lần" if mode == "1" else "Gửi Lần Lượt Từng Dòng"
-        msg_report.append(f"🚀 **Đã kích hoạt Spam thành công!**\n• **Token hoạt động**: `{len(valid_tokens)}`\n• **Chế độ**: `{mode_name}`\n• **Gõ `!stopsp` để dừng.**")
+        font_name = "Chữ To (#)" if font_size == "to" else "Chữ Nhỏ"
+        msg_report.append(f"🚀 **Đã kích hoạt Spam thành công!**\n• **Token hoạt động**: `{len(valid_tokens)}`\n• **Chế độ**: `{mode_name}`\n• **Kiểu chữ**: `{font_name}`\n• **Gõ `!stopsp` để dừng.**")
         await interaction.followup.send("\n\n".join(msg_report), ephemeral=True)
 
-        task = asyncio.create_task(run_spam_task(valid_tokens, channels, mention_ids, delay, mode))
+        task = asyncio.create_task(run_spam_task(valid_tokens, channels, mention_ids, delay, mode, font_size))
         active_spam_tasks.append(task)
 
 # ---------------------------------------------------------
@@ -456,7 +481,7 @@ class MenuView(View):
         await interaction.response.send_modal(SetTokenModal())
 
 # ---------------------------------------------------------
-# Lệnh Bot & Giao Diện Dashboard Chuyên Nghiệp
+# Lệnh Bot & Giao Diện Dashboard
 # ---------------------------------------------------------
 @bot.event
 async def on_ready():
@@ -485,7 +510,7 @@ async def menu_command(ctx):
     embed.add_field(
         name="📌 Hướng dẫn chức năng",
         value=(
-            "• **🚀 Chạy Spam**: Mở bảng cấu hình (hỗ trợ chọn chế độ gửi full kho hoặc từng dòng độc lập).\n"
+            "• **🚀 Chạy Spam**: Mở bảng cấu hình (hỗ trợ chọn chế độ, chữ to/nhỏ, tag ở dưới câu, không lặp ngôn).\n"
             "• **🎧 Treo Room Voice**: Duy trì kết nối phòng voice 24/7 không rớt.\n"
             "• **🔑 Lưu Token Riêng**: Lưu trữ kho token cá nhân an toàn gắn với tài khoản của bạn.\n"
             "• **📂 Đổi Kho Ngôn**: Đính kèm file `.txt` (mỗi dòng 1 câu) kèm lệnh `!loadtxt` để nạp kho ngôn mới.\n"
@@ -595,14 +620,12 @@ async def start_web_server():
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Render tự động cấp phát PORT thông qua biến môi trường, mặc định 10000 nếu chạy local
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌐 Web server đã chạy tại cổng {port} (Hỗ trợ Uptime Render)")
 
 async def main_runner():
-    # Lấy Bot Token ưu tiên từ biến môi trường Render, nếu không có sẽ hỏi nhập (khi chạy local)
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     if not BOT_TOKEN:
         BOT_TOKEN = input("👉 Nhập Token Bot Discord của bạn: ").strip()
@@ -611,7 +634,6 @@ async def main_runner():
         print("❌ Lỗi: Bạn chưa nhập Token Bot!")
         return
 
-    # Chạy song song Web Server và Discord Bot
     await start_web_server()
     try:
         await bot.start(BOT_TOKEN)
