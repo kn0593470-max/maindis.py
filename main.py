@@ -174,7 +174,7 @@ MESSAGES = [
     "thằng cầm thú loạn luân some với mẹ ruột và ba ruột còn quay clip",
     "m bị óc cứt hay sao z hả mà t nói m dell hiểu hay bố phải nhét cứt vào đầu m tính m mới thông hả con óc lồn ơi",
     "Một lũ xam cu lên đây đú ửa ngôn thì nhạt như cái nước lồn của con đỉ mẹ cm v hăng lên đi con mẹ mày bị t xé rách mu sao chối ????",
-    "bà già mày bị tao treo cổ lên trên trần nhà mà?",
+    "bà giảm mày bị tao treo cổ lên trên trần nhà mà?",
     "thằng bất tài vô dụng sủa mạnh lên đi",
     "cố gắng để win tao nhá",
     "tao bất bại mà thằng ngu?",
@@ -198,7 +198,7 @@ active_spam_tasks = []
 active_vc_tasks = []
 
 # ---------------------------------------------------------
-# Tiến trình gửi tin nhắn ĐỒNG THỜI cho 1 Token duy nhất
+# Tiến trình gửi tin nhắn (Xử lý riêng biệt Kho 1 Full & Kho 2 Từng Dòng)
 # ---------------------------------------------------------
 async def single_token_worker(token, channel_id, mention_text, delay, mode, font_size, token_offset):
     headers = {
@@ -208,54 +208,74 @@ async def single_token_worker(token, channel_id, mention_text, delay, mode, font
     }
     
     total_msgs = len(MESSAGES)
-    msg_idx = token_offset % total_msgs  # Mỗi token bắt đầu ở một vị trí ngôn khác nhau để không lặp
+    msg_idx = token_offset % total_msgs
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
         while True:
-            msg = MESSAGES[msg_idx]
-            msg_idx = (msg_idx + 1) % total_msgs
-
-            # Xử lý cỡ chữ
-            if font_size == "to":
-                msg = f"# {msg}"
-
-            # Tag luôn nằm DƯỚI câu chat
-            full_msg = f"{msg}\n{mention_text}" if mention_text else msg
-
-            typing_url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
-            send_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-
-            try:
-                # Báo typing
-                async with session.post(typing_url, headers=headers) as _:
-                    pass
+            # ---------------------------------------------------------
+            # CHẾ ĐỘ 1: GỬI NGUYÊN KHỐI / FULL KHO NGÔN CÙNG 1 LÚC
+            # ---------------------------------------------------------
+            if mode == "1":
+                # Nối toàn bộ câu ngôn lại thành 1 nội dung duy nhất
+                raw_full = "\n".join(MESSAGES)
                 
+                if font_size == "to":
+                    # Mỗi dòng đều có # ở đầu để hiện chữ to
+                    lines = [f"# {line}" for line in MESSAGES]
+                    full_content = "\n".join(lines)
+                else:
+                    full_content = raw_full
+
+                # Đưa Tag xuống cuối cùng
+                if mention_text:
+                    full_content = f"{full_content}\n{mention_text}"
+
+                # Discord giới hạn 2000 ký tự / 1 tin nhắn, nếu dài hơn sẽ tự cắt thành các tin nhắn 1900 ký tự để gửi full
+                chunks = [full_content[i:i+1900] for i in range(0, len(full_content), 1900)]
+
+                for chunk in chunks:
+                    typing_url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
+                    send_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+                    try:
+                        async with session.post(typing_url, headers=headers) as _:
+                            pass
+                        async with session.post(send_url, json={"content": chunk}, headers=headers) as resp:
+                            pass
+                    except Exception:
+                        pass
                 await asyncio.sleep(delay)
 
-                # Gửi tin nhắn
-                async with session.post(send_url, json={"content": full_msg}, headers=headers) as resp:
-                    pass
+            # ---------------------------------------------------------
+            # CHẾ ĐỘ 2: GỬI LẦN LƯỢT TỪNG DÒNG ĐỘC LẬP XOAY VỒNG
+            # ---------------------------------------------------------
+            elif mode == "2":
+                msg = MESSAGES[msg_idx]
+                msg_idx = (msg_idx + 1) % total_msgs
 
-                # Với kho ngôn 1 (Gửi full nhanh) -> nghỉ ngắn giữa các câu
-                # Với kho ngôn 2 -> nghỉ theo delay
-                if mode == "1":
-                    await asyncio.sleep(0.1)
-                else:
-                    await asyncio.sleep(delay)
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                await asyncio.sleep(1.0)
+                current_msg = f"# {msg}" if font_size == "to" else msg
+                full_msg = f"{current_msg}\n{mention_text}" if mention_text else current_msg
+
+                typing_url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
+                send_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+
+                try:
+                    async with session.post(typing_url, headers=headers) as _:
+                        pass
+                    await asyncio.sleep(0.2)
+                    async with session.post(send_url, json={"content": full_msg}, headers=headers) as resp:
+                        pass
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
 
 # ---------------------------------------------------------
-# Hàm Kích Hoạt Đa Tiến Trình Spam Chạy Song Song Cùng Lúc
+# Hàm Kích Hoạt Đa Tiến Trình Spam Chạy Song Song
 # ---------------------------------------------------------
 async def start_parallel_spam(tokens, channels, mention_ids, delay, mode, font_size):
     mention_text = " ".join([f"<@{uid}>" for uid in mention_ids]) if mention_ids else ""
     
     for idx, token in enumerate(tokens):
         channel_id = channels[idx % len(channels)]
-        # Tạo Task độc lập chạy hoàn toàn song song không phải chờ nhau
         task = asyncio.create_task(
             single_token_worker(token, channel_id, mention_text, delay, mode, font_size, token_offset=idx)
         )
@@ -384,19 +404,18 @@ class SpamModal(Modal, title="⚡ CẤU HÌNH CHIẾN DỊCH SPAM ⚡"):
 
         mention_ids = [m.strip() for m in self.tags_input.value.split(",") if m.strip()]
         font_name = "Chữ To (# ở đầu)" if font_size == "to" else "Chữ Nhỏ"
-        mode_name = "Kho Ngôn 1 (Full Kho Liên Tục)" if mode == "1" else "Kho Ngôn 2 (Song Song Độc Lập)"
+        mode_name = "Kho Ngôn 1 (Gửi Toàn Bộ Kho Ngôn Cùng Lúc)" if mode == "1" else "Kho Ngôn 2 (Gửi Từng Dòng Xoay Vòng)"
 
-        # Kích hoạt chạy đa tiến trình song song cùng lúc
-        await start_parallel_spam(valid_tokens, channels, mention_ids, 0.5, mode, font_size)
+        await start_parallel_spam(valid_tokens, channels, mention_ids, 1.0, mode, font_size)
 
         msg_report.append(
-            f"🚀 **ĐÃ KÍCH HOẠT {len(valid_tokens)} TOKEN SPAM CÙNG LÚC!**\n"
-            f"• **Số Token đang chạy**: `{len(valid_tokens)}`\n"
+            f"🚀 **ĐÃ KÍCH HOẠT SPAM THÀNH CÔNG!**\n"
+            f"• **Số Token chạy**: `{len(valid_tokens)}`\n"
             f"• **Kiểu chữ**: `{font_name}`\n"
-            f"• **Kho ngôn**: `{mode_name}`\n"
+            f"• **Chế độ**: `{mode_name}`\n"
             f"• **Kênh chạy**: `{', '.join(channels)}`\n"
-            f"• **Vị trí Tag**: `Ở Dưới Câu Chat`\n"
-            f"👉 *Gõ lệnh `!stopsp` bất cứ lúc nào để dừng.*"
+            f"• **Vị trí Tag**: `Ở Dưới Kho Ngôn`\n"
+            f"👉 *Gõ lệnh `!stopsp` để dừng.*"
         )
         await interaction.followup.send("\n\n".join(msg_report), ephemeral=True)
 
@@ -520,7 +539,7 @@ async def menu_command(ctx):
     embed.add_field(
         name="📌 Hướng dẫn chức năng",
         value=(
-            "• **🚀 Chạy Spam**: Nhập cấu hình (Chọn chữ to/nhỏ, kho ngôn 1 hoặc 2, tag tự nằm ở dưới). Gõ **`my`** để dùng token đã lọc.\n"
+            "• **🚀 Chạy Spam**: Nhập cấu hình (Chọn chữ to/nhỏ, kho ngôn 1 gửi full hoặc kho 2 từng dòng, tag ở dưới). Gõ **`my`** để dùng token đã lọc.\n"
             "• **🔑 Lọc Token Sống/Chết**: Quét token die và tự động lưu các token sống làm mặc định.\n"
             "• **🎧 Treo Room Voice**: Duy trì kết nối phòng voice 24/7 không rớt.\n"
             "• **📂 Đổi Kho Ngôn**: Đính kèm file `.txt` (mỗi dòng 1 câu) kèm lệnh `!loadtxt` để nạp kho ngôn mới.\n"
